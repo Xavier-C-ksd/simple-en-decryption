@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encrypt/Decrypt Message</title>
+    <style>
+        /* Styling for a bubbly, subtle blue UI */
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #e0f7ff;
+        }
+
+        #container {
+            background-color: #ffffff;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            width: 350px;
+            text-align: center;
+        }
+
+        h2 {
+            color: #007acc;
+            margin-bottom: 20px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid #007acc;
+            outline: none;
+            resize: none;
+            margin-bottom: 15px;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            background-color: #007acc;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #005f99;
+        }
+
+        #output {
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: #333;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h2>Message Encrypt/Decrypt</h2>
+        <textarea id="message" placeholder="Enter your message here"></textarea>
+        <button onclick="encryptMessage()">Encrypt</button>
+        <button onclick="decryptMessage()">Decrypt</button>
+        <p id="output"></p>
+    </div>
+
+    <script>
+        // Generate a secure encryption key using AES-GCM
+        async function generateKey() {
+            return await crypto.subtle.generateKey(
+                {
+                    name: "AES-GCM",
+                    length: 256,
+                },
+                true,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        // Encrypts the message and displays it with the encryption key and IV (Initialization Vector)
+        async function encryptMessage() {
+            const message = document.getElementById("message").value;
+            const encoder = new TextEncoder().encode(message); // Convert text to byte format
+
+            const key = await generateKey(); // Generate an AES key
+            const iv = crypto.getRandomValues(new Uint8Array(12)); // Create a random IV
+
+            // Encrypt the message
+            const ciphertext = await crypto.subtle.encrypt(
+                {
+                    name: "AES-GCM",
+                    iv: iv, // The unique IV adds randomness to prevent pattern recognition
+                },
+                key,
+                encoder
+            );
+
+            // Export the encryption key in base64 format
+            const exportedKey = await crypto.subtle.exportKey("raw", key);
+            const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
+
+            // Display the encrypted message and key
+            document.getElementById("output").innerText = `
+                Encrypted Message: ${btoa(String.fromCharCode(...new Uint8Array(ciphertext)))}
+                Decryption Key: ${keyBase64}
+                IV: ${btoa(String.fromCharCode(...iv))}
+            `;
+        }
+
+        // Decrypts the message using the encrypted text, key, and IV
+        async function decryptMessage() {
+            const encryptedMessage = prompt("Enter the encrypted message:");
+            const base64Key = prompt("Enter the decryption key:");
+            const base64IV = prompt("Enter the IV:");
+
+            const ciphertext = Uint8Array.from(atob(encryptedMessage), c => c.charCodeAt(0));
+            const iv = Uint8Array.from(atob(base64IV), c => c.charCodeAt(0));
+
+            // Convert the base64 key back into a usable format
+            const keyBuffer = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0)).buffer;
+            const key = await crypto.subtle.importKey(
+                "raw",
+                keyBuffer,
+                {
+                    name: "AES-GCM",
+                    length: 256,
+                },
+                true,
+                ["decrypt"]
+            );
+
+            try {
+                const decrypted = await crypto.subtle.decrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: iv, // The original IV is needed to decrypt the message
+                    },
+                    key,
+                    ciphertext
+                );
+
+                // Display the decrypted message
+                document.getElementById("output").innerText = `Decrypted Message: ${new TextDecoder().decode(decrypted)}`;
+            } catch (e) {
+                console.error("Decryption failed", e);
+                document.getElementById("output").innerText = "Decryption failed. Please check your inputs.";
+            }
+        }
+    </script>
+</body>
+</html>
