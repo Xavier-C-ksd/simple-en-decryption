@@ -103,12 +103,12 @@
         
         <h3>Encrypt/Decrypt File</h3>
         <button onclick="triggerEncryptFileInput()">Encrypt and Save File</button>
-        <button onclick="triggerDecryptFileInput()">Upload and Decrypt File</button>
+        <button onclick="triggerDecryptCryptFileInput()">Upload and Decrypt File</button>
 
         <!-- Hidden file inputs for file selection -->
         <input type="file" id="fileInput" accept="*/*" onchange="encryptFile()" />
-        <input type="file" id="decryptCryptFile" accept=".crypt" onchange="decryptFile()" />
-        <input type="file" id="decryptKeyFile" accept=".ckey" />
+        <input type="file" id="decryptCryptFile" accept=".crypt" onchange="decryptCryptFile()" />
+        <input type="file" id="decryptKeyFile" accept=".ckey" onchange="decryptKeyFile()" />
 
         <p id="output"></p>
         <div id="version">Version 0.1.1 Alpha</div>
@@ -131,9 +131,14 @@
             document.getElementById("fileInput").click();
         }
 
-        // Trigger file inputs for decrypting a file
-        function triggerDecryptFileInput() {
+        // Trigger file input for decrypting the .crypt file
+        function triggerDecryptCryptFileInput() {
             document.getElementById("decryptCryptFile").click();
+        }
+
+        // Trigger file input for decrypting the .ckey file after .crypt file is selected
+        function triggerDecryptKeyFileInput() {
+            document.getElementById("decryptKeyFile").click();
         }
 
         // Encrypt the uploaded file and save the encrypted file and key/IV as .ckey
@@ -184,23 +189,33 @@
             document.getElementById("output").innerText = `File encrypted successfully. Saved as ${encryptedFileName} and ${keyIvFileName}.`;
         }
 
-        // Decrypt the uploaded file and restore its original file name and extension
-        async function decryptFile() {
+        // Decrypt the uploaded .crypt file
+        async function decryptCryptFile() {
             const cryptFileInput = document.getElementById("decryptCryptFile");
-            const keyFileInput = document.getElementById("decryptKeyFile");
-
-            if (!cryptFileInput.files.length || !keyFileInput.files.length) {
-                alert("Please select both the encrypted file and the key file.");
+            if (!cryptFileInput.files.length) {
+                alert("Please select the encrypted .crypt file.");
                 return;
             }
 
-            const encryptedFile = cryptFileInput.files[0];
-            const encryptedArrayBuffer = await encryptedFile.arrayBuffer();
+            const cryptFile = cryptFileInput.files[0];
+            const cryptArrayBuffer = await cryptFile.arrayBuffer();
 
-            const keyIvFile = keyFileInput.files[0];
-            const keyIvContent = await keyIvFile.text();
+            // Now, trigger the key file input
+            triggerDecryptKeyFileInput();
+        }
+
+        // Decrypt the uploaded .ckey file containing key/IV
+        async function decryptKeyFile() {
+            const keyFileInput = document.getElementById("decryptKeyFile");
+            if (!keyFileInput.files.length) {
+                alert("Please select the key (.ckey) file.");
+                return;
+            }
+
+            const keyFile = keyFileInput.files[0];
+            const keyIvContent = await keyFile.text();
+
             const [keyBase64, ivBase64] = keyIvContent.split("\n").map(line => line.split(": ")[1]);
-
             const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
             const keyBuffer = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0)).buffer;
 
@@ -216,16 +231,12 @@
                 const decryptedData = await crypto.subtle.decrypt(
                     { name: "AES-GCM", iv: iv },
                     key,
-                    encryptedArrayBuffer
+                    cryptArrayBuffer
                 );
 
-                // Get the original file extension from the .ckey file (if any) or use a default
-                const originalFileName = encryptedFile.name.split('.').slice(0, -1).join('.');  // Remove .crypt
-                const decryptedFileName = `${originalFileName}`;
-
-                // Convert decrypted data to a Blob and download it
                 const blob = new Blob([decryptedData]);
                 const url = URL.createObjectURL(blob);
+                const decryptedFileName = cryptFile.name.split('.').slice(0, -1).join('.'); // Remove .crypt
                 const a = document.createElement("a");
                 a.href = url;
                 a.download = decryptedFileName;
@@ -235,11 +246,10 @@
                 document.getElementById("output").innerText = `File decrypted successfully. Saved as ${decryptedFileName}.`;
             } catch (e) {
                 console.error("Decryption failed", e);
-                document.getElementById("output").innerText = "Decryption failed.";
+                alert("Decryption failed.");
             }
         }
 
-        // Encrypts text input and saves as encrypted text
         async function encryptText() {
             const text = document.getElementById("textInput").value;
             if (!text) {
@@ -279,7 +289,6 @@
             document.getElementById("output").innerText = "Text encrypted successfully.";
         }
 
-        // Decrypts the text using the key and IV
         async function decryptText() {
             const text = document.getElementById("textInput").value;
             if (!text) {
