@@ -3,226 +3,98 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Encrypt/Decrypt</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #e0f7fa;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-
-        #container {
-            background: #ffffff;
-            border-radius: 15px;
-            padding: 40px;
-            width: 80%;
-            max-width: 600px;
-            text-align: center;
-        }
-
-        button {
-            padding: 10px 20px;
-            background-color: #00796b;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin: 10px;
-        }
-
-        button:hover {
-            background-color: #004d40;
-        }
-
-        input[type="file"] {
-            display: none;
-        }
-
-        #output {
-            margin-top: 20px;
-        }
-
-        .upload-btn {
-            position: relative;
-            overflow: hidden;
-            display: inline-block;
-        }
-
-        .upload-btn input[type="file"] {
-            position: absolute;
-            top: 0;
-            right: 0;
-            opacity: 0;
-            height: 100%;
-            width: 100%;
-        }
-
-    </style>
+    <title>File Encrypter</title>
 </head>
 <body>
-    <div id="container">
-        <h2>File Encrypt/Decrypt</h2>
+    <h1>Encrypt and Decrypt Files</h1>
+    <input type="file" id="fileInput">
+    <button onclick="encryptFile()">Encrypt</button>
+    <button onclick="decryptFile()">Decrypt</button>
 
-        <!-- Encrypt Section -->
-        <h3>Encrypt File</h3>
-        <textarea id="textInput" placeholder="Enter text to encrypt (optional)" rows="4" style="width: 100%;"></textarea><br>
-        <div class="upload-btn">
-            <button id="encryptBtn">Encrypt File</button>
-            <input type="file" id="fileInput" />
-        </div>
-
-        <hr>
-
-        <!-- Decrypt Section -->
-        <h3>Decrypt File</h3>
-        <div class="upload-btn">
-            <button id="decryptCryptBtn">Decrypt .crypt File</button>
-            <input type="file" id="decryptCryptFile" accept=".crypt" />
-        </div>
-
-        <div class="upload-btn">
-            <button id="decryptKeyBtn">Decrypt .ckey File</button>
-            <input type="file" id="decryptKeyFile" accept=".ckey" />
-        </div>
-
-        <div id="output"></div>
-    </div>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.js"></script>
     <script>
-        let cryptArrayBuffer;
-
-        async function encryptFile() {
-            const fileInput = document.getElementById("fileInput");
+        function encryptFile() {
+            const fileInput = document.getElementById('fileInput');
             const file = fileInput.files[0];
             if (!file) {
-                alert("Please select a file to encrypt.");
+                alert("Please choose a file first.");
                 return;
             }
 
-            const fileArrayBuffer = await file.arrayBuffer();
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const fileContent = event.target.result;
+                
+                // Generate a random key and IV
+                const key = CryptoJS.lib.WordArray.random(16); // 128-bit key
+                const iv = CryptoJS.lib.WordArray.random(16); // 128-bit IV
+                
+                // Encrypt the file content
+                const encrypted = CryptoJS.AES.encrypt(fileContent, key, { iv: iv });
+                
+                // Randomized file name
+                const randomFileName = Math.random().toString(36).substring(2, 15) + ".crypt";
+                const keyFileName = Math.random().toString(36).substring(2, 15) + ".ckey";
+                
+                // Saving encrypted file
+                const encryptedBlob = new Blob([encrypted.toString()], { type: "text/plain" });
+                const cryptLink = document.createElement('a');
+                cryptLink.href = URL.createObjectURL(encryptedBlob);
+                cryptLink.download = randomFileName;
+                cryptLink.click();
 
-            // Generate key and IV
-            const key = await crypto.subtle.generateKey(
-                { name: "AES-GCM", length: 256 },
-                true,
-                ["encrypt", "decrypt"]
-            );
-            const iv = crypto.getRandomValues(new Uint8Array(12));
+                // Saving key and IV to a separate .ckey file
+                const keyAndIv = {
+                    key: key.toString(CryptoJS.enc.Base64),
+                    iv: iv.toString(CryptoJS.enc.Base64)
+                };
+                const keyBlob = new Blob([JSON.stringify(keyAndIv)], { type: "application/json" });
+                const keyLink = document.createElement('a');
+                keyLink.href = URL.createObjectURL(keyBlob);
+                keyLink.download = keyFileName;
+                keyLink.click();
+            };
 
-            // Encrypt the file
-            const encryptedData = await crypto.subtle.encrypt(
-                { name: "AES-GCM", iv: iv },
-                key,
-                fileArrayBuffer
-            );
-
-            // Convert the encryption key and IV to base64 for storage
-            const exportedKey = await crypto.subtle.exportKey("raw", key);
-            const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
-            const ivBase64 = btoa(String.fromCharCode(...iv));
-
-            // Save the encrypted file as a .crypt file
-            const encryptedText = btoa(String.fromCharCode(...new Uint8Array(encryptedData)));
-            downloadFile("file_encrypted.crypt", encryptedText);
-
-            // Save the key/IV as a .ckey file
-            const keyIvContent = `key: ${keyBase64}\niv: ${ivBase64}`;
-            downloadFile("file_key.ckey", keyIvContent);
-
-            document.getElementById("output").innerText = "File encrypted successfully.";
+            reader.readAsText(file);
         }
 
-        async function decryptCryptFile() {
-            const cryptFileInput = document.getElementById("decryptCryptFile");
-            if (!cryptFileInput.files.length) {
-                alert("Please select the encrypted .crypt file.");
+        function decryptFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert("Please choose an encrypted file first.");
                 return;
             }
 
-            const cryptFile = cryptFileInput.files[0];
-            cryptArrayBuffer = await cryptFile.arrayBuffer();
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const encryptedData = event.target.result;
 
-            // Now, trigger the key file input
-            triggerDecryptKeyFileInput();
+                const keyFileInput = prompt("Enter the name of the key file (with .ckey extension):");
+                const keyFile = new File([encryptedData], keyFileInput, { type: "application/json" });
+
+                const keyReader = new FileReader();
+                keyReader.onload = function(keyEvent) {
+                    const keyData = JSON.parse(keyEvent.target.result);
+                    const key = CryptoJS.enc.Base64.parse(keyData.key);
+                    const iv = CryptoJS.enc.Base64.parse(keyData.iv);
+
+                    // Decrypt the file
+                    const decrypted = CryptoJS.AES.decrypt(encryptedData, key, { iv: iv });
+                    const decryptedFile = decrypted.toString(CryptoJS.enc.Utf8);
+
+                    const decryptedBlob = new Blob([decryptedFile], { type: "text/plain" });
+                    const decryptedLink = document.createElement('a');
+                    decryptedLink.href = URL.createObjectURL(decryptedBlob);
+                    decryptedLink.download = "decrypted.txt";
+                    decryptedLink.click();
+                };
+
+                keyReader.readAsText(keyFile);
+            };
+
+            reader.readAsText(file);
         }
-
-        async function decryptKeyFile() {
-            const keyFileInput = document.getElementById("decryptKeyFile");
-            if (!keyFileInput.files.length) {
-                alert("Please select the key (.ckey) file.");
-                return;
-            }
-
-            const keyFile = keyFileInput.files[0];
-            const keyIvContent = await keyFile.text();
-
-            // Extract the key and IV from the .ckey file content
-            const [keyBase64, ivBase64] = keyIvContent.split("\n").map(line => line.split(": ")[1]);
-            
-            // Convert the base64 key and IV back into Uint8Arrays
-            const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
-            const keyBuffer = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0)).buffer;
-
-            // Import the key from the buffer
-            const key = await crypto.subtle.importKey(
-                "raw",
-                keyBuffer,
-                { name: "AES-GCM" },
-                true,
-                ["decrypt"]
-            );
-
-            try {
-                // Decrypt the file using the imported key and IV
-                const decryptedData = await crypto.subtle.decrypt(
-                    { name: "AES-GCM", iv: iv },
-                    key,
-                    cryptArrayBuffer
-                );
-
-                // Convert decrypted data back to a Blob and trigger a download
-                const blob = new Blob([decryptedData]);
-                const url = URL.createObjectURL(blob);
-                const decryptedFileName = cryptFile.name.split('.').slice(0, -1).join('.'); // Remove .crypt
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = decryptedFileName;
-                a.click();
-                URL.revokeObjectURL(url);
-
-                document.getElementById("output").innerText = `File decrypted successfully. Saved as ${decryptedFileName}.`;
-            } catch (e) {
-                console.error("Decryption failed", e);
-                alert("Decryption failed. Check the key and IV.");
-            }
-        }
-
-        // Helper to download files
-        function downloadFile(fileName, content) {
-            const blob = new Blob([content], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = fileName;
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-
-        function triggerDecryptKeyFileInput() {
-            const keyFileInput = document.getElementById("decryptKeyFile");
-            keyFileInput.click();
-        }
-
-        // Event listeners
-        document.getElementById("encryptBtn").addEventListener("click", encryptFile);
-        document.getElementById("decryptCryptBtn").addEventListener("click", decryptCryptFile);
-        document.getElementById("decryptKeyBtn").addEventListener("click", decryptKeyFile);
-
     </script>
 </body>
 </html>
