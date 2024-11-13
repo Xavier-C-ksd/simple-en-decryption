@@ -3,17 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Encrypt/Decrypt Message</title>
+    <title>File Encrypt/Decrypt</title>
     <style>
-        /* Styling for a bubbly, subtle blue UI */
-        body {
+        /* Styling for a full-screen, subtle blue UI */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            height: 100%;
             font-family: Arial, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            margin: 0;
             background-color: #e0f7ff;
+            overflow: hidden;
         }
 
         #container {
@@ -21,8 +27,14 @@
             border-radius: 15px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
             padding: 20px;
-            width: 350px;
+            width: 100%;
+            height: 100%;
+            max-width: 600px;
+            max-height: 500px;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
 
         h2 {
@@ -30,15 +42,8 @@
             margin-bottom: 20px;
         }
 
-        textarea {
-            width: 100%;
-            height: 100px;
-            padding: 10px;
-            border-radius: 10px;
-            border: 1px solid #007acc;
-            outline: none;
-            resize: none;
-            margin-bottom: 15px;
+        input[type="file"] {
+            margin: 10px 0;
         }
 
         button {
@@ -62,98 +67,129 @@
             color: #333;
             word-break: break-all;
         }
+
+        #version {
+            margin-top: auto;
+            font-size: 0.8em;
+            color: #007acc;
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
     <div id="container">
-        <h2>Message Encrypt/Decrypt</h2>
-        <textarea id="message" placeholder="Enter your message here"></textarea>
-        <button onclick="encryptMessage()">Encrypt</button>
-        <button onclick="decryptMessage()">Decrypt</button>
+        <h2>File Encrypt/Decrypt</h2>
+        <input type="file" id="fileInput" />
+        <button onclick="encryptFile()">Encrypt and Save</button>
+        <button onclick="decryptFile()">Upload and Decrypt</button>
         <p id="output"></p>
+        <div id="version">Version 0.1.1 Alpha</div>
     </div>
 
     <script>
-        // Generate a secure encryption key using AES-GCM
-        async function generateKey() {
-            return await crypto.subtle.generateKey(
-                {
-                    name: "AES-GCM",
-                    length: 256,
-                },
+        // Helper function to download a file
+        function downloadFile(filename, content) {
+            const blob = new Blob([content]);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Encrypts the uploaded file and saves the encrypted file and key/IV
+        async function encryptFile() {
+            const fileInput = document.getElementById("fileInput");
+            if (!fileInput.files.length) {
+                alert("Please select a file to encrypt.");
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const arrayBuffer = await file.arrayBuffer();
+
+            // Generate a random encryption key and IV for AES-GCM
+            const key = await crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
                 true,
                 ["encrypt", "decrypt"]
             );
-        }
+            const iv = crypto.getRandomValues(new Uint8Array(12));
 
-        // Encrypts the message and displays it with the encryption key and IV (Initialization Vector)
-        async function encryptMessage() {
-            const message = document.getElementById("message").value;
-            const encoder = new TextEncoder().encode(message); // Convert text to byte format
-
-            const key = await generateKey(); // Generate an AES key
-            const iv = crypto.getRandomValues(new Uint8Array(12)); // Create a random IV
-
-            // Encrypt the message
-            const ciphertext = await crypto.subtle.encrypt(
-                {
-                    name: "AES-GCM",
-                    iv: iv, // The unique IV adds randomness to prevent pattern recognition
-                },
+            // Encrypt the file data
+            const encryptedData = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
                 key,
-                encoder
+                arrayBuffer
             );
 
-            // Export the encryption key in base64 format
+            // Convert the encryption key and IV to base64 for storage
             const exportedKey = await crypto.subtle.exportKey("raw", key);
             const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
+            const ivBase64 = btoa(String.fromCharCode(...iv));
 
-            // Display the encrypted message and key
-            document.getElementById("output").innerText = `
-                Encrypted Message: ${btoa(String.fromCharCode(...new Uint8Array(ciphertext)))}
-                Decryption Key: ${keyBase64}
-                IV: ${btoa(String.fromCharCode(...iv))}
-            `;
+            // Save the encrypted file
+            downloadFile(`${file.name}.encrypted`, new Uint8Array(encryptedData));
+
+            // Save the decryption key and IV as a separate file
+            const keyIvContent = `Decryption Key: ${keyBase64}\nIV: ${ivBase64}`;
+            downloadFile(`${file.name}_key_iv.txt`, keyIvContent);
+
+            document.getElementById("output").innerText = "Files saved: encrypted file and key/IV file.";
         }
 
-        // Decrypts the message using the encrypted text, key, and IV
-        async function decryptMessage() {
-            const encryptedMessage = prompt("Enter the encrypted message:");
-            const base64Key = prompt("Enter the decryption key:");
-            const base64IV = prompt("Enter the IV:");
+        // Decrypts an uploaded encrypted file using the provided key/IV file
+        async function decryptFile() {
+            const encryptedFile = await uploadFile("Upload the encrypted file:");
+            const keyIvFile = await uploadFile("Upload the decryption key/IV file:");
 
-            const ciphertext = Uint8Array.from(atob(encryptedMessage), c => c.charCodeAt(0));
-            const iv = Uint8Array.from(atob(base64IV), c => c.charCodeAt(0));
+            const [keyBase64, ivBase64] = keyIvFile.match(/(?<=: ).+/g);
 
-            // Convert the base64 key back into a usable format
-            const keyBuffer = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0)).buffer;
+            // Convert base64 strings back to ArrayBuffer format
+            const ciphertext = Uint8Array.from(encryptedFile, c => c.charCodeAt(0));
+            const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
+            const keyBuffer = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0)).buffer;
+
+            // Import the encryption key
             const key = await crypto.subtle.importKey(
                 "raw",
                 keyBuffer,
-                {
-                    name: "AES-GCM",
-                    length: 256,
-                },
+                { name: "AES-GCM" },
                 true,
                 ["decrypt"]
             );
 
+            // Decrypt the file
             try {
-                const decrypted = await crypto.subtle.decrypt(
-                    {
-                        name: "AES-GCM",
-                        iv: iv, // The original IV is needed to decrypt the message
-                    },
+                const decryptedData = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: iv },
                     key,
                     ciphertext
                 );
 
-                // Display the decrypted message
-                document.getElementById("output").innerText = `Decrypted Message: ${new TextDecoder().decode(decrypted)}`;
+                // Download the decrypted file
+                downloadFile("decrypted_file", new Uint8Array(decryptedData));
+                document.getElementById("output").innerText = "File decrypted successfully.";
             } catch (e) {
                 console.error("Decryption failed", e);
                 document.getElementById("output").innerText = "Decryption failed. Please check your inputs.";
             }
+        }
+
+        // Helper function for file upload
+        async function uploadFile(promptText) {
+            return new Promise((resolve) => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "text/plain";
+                input.onchange = async (event) => {
+                    const file = event.target.files[0];
+                    const arrayBuffer = await file.arrayBuffer();
+                    resolve(new Uint8Array(arrayBuffer));
+                };
+                input.click();
+            });
         }
     </script>
 </body>
