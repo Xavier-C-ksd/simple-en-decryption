@@ -70,27 +70,30 @@
             reader.onload = function(event) {
                 const encryptedData = event.target.result;
 
-                const keyFileInput = prompt("Enter the name of the key file (with .ckey extension):");
-                const keyFile = new File([encryptedData], keyFileInput, { type: "application/json" });
+                const keyFileInput = document.createElement('input');
+                keyFileInput.type = "file";
+                keyFileInput.accept = ".ckey";
+                keyFileInput.onchange = function() {
+                    const keyFile = keyFileInput.files[0];
+                    const keyReader = new FileReader();
+                    keyReader.onload = function(keyEvent) {
+                        const keyData = JSON.parse(keyEvent.target.result);
+                        const key = CryptoJS.enc.Base64.parse(keyData.key);
+                        const iv = CryptoJS.enc.Base64.parse(keyData.iv);
 
-                const keyReader = new FileReader();
-                keyReader.onload = function(keyEvent) {
-                    const keyData = JSON.parse(keyEvent.target.result);
-                    const key = CryptoJS.enc.Base64.parse(keyData.key);
-                    const iv = CryptoJS.enc.Base64.parse(keyData.iv);
+                        // Decrypt the file
+                        const decrypted = CryptoJS.AES.decrypt(encryptedData, key, { iv: iv });
+                        const decryptedFile = decrypted.toString(CryptoJS.enc.Utf8);
 
-                    // Decrypt the file
-                    const decrypted = CryptoJS.AES.decrypt(encryptedData, key, { iv: iv });
-                    const decryptedFile = decrypted.toString(CryptoJS.enc.Utf8);
-
-                    const decryptedBlob = new Blob([decryptedFile], { type: "text/plain" });
-                    const decryptedLink = document.createElement('a');
-                    decryptedLink.href = URL.createObjectURL(decryptedBlob);
-                    decryptedLink.download = "decrypted.txt";
-                    decryptedLink.click();
+                        const decryptedBlob = new Blob([decryptedFile], { type: "text/plain" });
+                        const decryptedLink = document.createElement('a');
+                        decryptedLink.href = URL.createObjectURL(decryptedBlob);
+                        decryptedLink.download = "decrypted.txt";
+                        decryptedLink.click();
+                    };
+                    keyReader.readAsText(keyFile);
                 };
-
-                keyReader.readAsText(keyFile);
+                keyFileInput.click();
             };
 
             reader.readAsText(file);
