@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>File Encrypt/Decrypt</title>
     <style>
-        /* Styling for a full-screen, subtle blue UI */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -103,7 +102,10 @@
         </div>
         
         <h3>Encrypt/Decrypt File</h3>
-        <input type="file" id="fileInput" />
+        <!-- The first file input only accepts .crypt files -->
+        <input type="file" id="fileInput" accept=".crypt" />
+        <!-- The second file input only accepts .ckey files -->
+        <input type="file" id="keyInput" accept=".ckey" />
         <button onclick="encryptFile()">Encrypt and Save File</button>
         <button onclick="decryptFile()">Upload and Decrypt File</button>
         <p id="output"></p>
@@ -122,7 +124,7 @@
             URL.revokeObjectURL(url);
         }
 
-        // Encrypts the uploaded file and saves the encrypted file and key/IV
+        // Encrypts the uploaded file and saves the encrypted file and key/IV as .ckey
         async function encryptFile() {
             const fileInput = document.getElementById("fileInput");
             if (!fileInput.files.length) {
@@ -155,30 +157,45 @@
             const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
             const ivBase64 = btoa(String.fromCharCode(...iv));
 
-            // Save the encrypted file with a .crypt extension
-            downloadFile(`random_${Math.random().toString(36).substring(2)}.crypt`, new Uint8Array(encryptedData));
+            // Generate a random filename for the encrypted file
+            const randomFileName = Math.random().toString(36).substring(2, 15);  // Random string
 
-            // Save the decryption key and IV as a separate file with file info
-            const keyIvContent = `File Name: ${fileName}\nFile Extension: ${fileExtension}\nDecryption Key: ${keyBase64}\nIV: ${ivBase64}`;
-            downloadFile(`${fileName}_key_iv.txt`, keyIvContent);
+            // Save the encrypted file with the .crypt extension
+            const encryptedFileName = `${randomFileName}.crypt`;
+            downloadFile(encryptedFileName, btoa(String.fromCharCode(...new Uint8Array(encryptedData))));
 
-            document.getElementById("output").innerText = "Files saved: encrypted file and key/IV file.";
+            // Save the key and IV as a .ckey file, with the same random name
+            const keyIvContent = `key: ${keyBase64}\niv: ${ivBase64}`;
+            const keyIvFileName = `${randomFileName}.ckey`;
+            downloadFile(keyIvFileName, keyIvContent);
+
+            document.getElementById("output").innerText = `File encrypted successfully. Saved as ${encryptedFileName} and ${keyIvFileName}.`;
         }
 
-        // Decrypts an uploaded encrypted file using the provided key/IV file
+        // Decrypts the uploaded file and restores its original file name and extension
         async function decryptFile() {
-            const encryptedFile = await uploadFile("Upload the encrypted file:");
-            const keyIvFile = await uploadFile("Upload the decryption key/IV file:");
+            const fileInput = document.getElementById("fileInput");
+            if (!fileInput.files.length) {
+                alert("Please select a file to decrypt.");
+                return;
+            }
 
-            const keyIvContent = new TextDecoder().decode(keyIvFile);
-            const [fileName, fileExtension, keyBase64, ivBase64] = keyIvContent.split("\n").map(line => line.split(": ")[1]);
+            const encryptedFile = fileInput.files[0];
+            const encryptedArrayBuffer = await encryptedFile.arrayBuffer();
 
-            // Convert base64 strings back to ArrayBuffer format
-            const ciphertext = encryptedFile;
+            const keyIvInput = document.getElementById("keyInput");
+            if (!keyIvInput.files.length) {
+                alert("Please select the corresponding .ckey file.");
+                return;
+            }
+
+            const keyIvFile = keyIvInput.files[0];
+            const keyIvContent = await keyIvFile.text();
+            const [keyBase64, ivBase64] = keyIvContent.split("\n").map(line => line.split(": ")[1]);
+
             const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
             const keyBuffer = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0)).buffer;
 
-            // Import the encryption key
             const key = await crypto.subtle.importKey(
                 "raw",
                 keyBuffer,
@@ -187,24 +204,34 @@
                 ["decrypt"]
             );
 
-            // Decrypt the file
             try {
                 const decryptedData = await crypto.subtle.decrypt(
                     { name: "AES-GCM", iv: iv },
                     key,
-                    ciphertext
+                    encryptedArrayBuffer
                 );
 
-                // Save the decrypted file with the original file name and extension
-                downloadFile(`${fileName}.${fileExtension}`, new Uint8Array(decryptedData));
-                document.getElementById("output").innerText = "File decrypted successfully.";
+                // Get the original file extension from the .ckey file (if any) or use a default
+                const originalFileName = encryptedFile.name.split('.').slice(0, -1).join('.');  // Remove .crypt
+                const decryptedFileName = `${originalFileName}`;
+
+                // Convert decrypted data to a Blob and download it
+                const blob = new Blob([decryptedData]);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = decryptedFileName;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                document.getElementById("output").innerText = `File decrypted successfully. Saved as ${decryptedFileName}.`;
             } catch (e) {
                 console.error("Decryption failed", e);
-                document.getElementById("output").innerText = "Decryption failed. Please check your inputs.";
+                document.getElementById("output").innerText = "Decryption failed.";
             }
         }
 
-        // Encrypts the text input by the user
+        // Encrypts text input and saves as encrypted text
         async function encryptText() {
             const text = document.getElementById("textInput").value;
             if (!text) {
@@ -212,7 +239,6 @@
                 return;
             }
 
-            // Generate a random encryption key and IV for AES-GCM
             const key = await crypto.subtle.generateKey(
                 { name: "AES-GCM", length: 256 },
                 true,
@@ -220,41 +246,40 @@
             );
             const iv = crypto.getRandomValues(new Uint8Array(12));
 
-            // Encrypt the text data
-            const encodedText = new TextEncoder().encode(text);
             const encryptedData = await crypto.subtle.encrypt(
                 { name: "AES-GCM", iv: iv },
                 key,
-                encodedText
+                new TextEncoder().encode(text)
             );
 
-            // Convert the encryption key and IV to base64 for storage
             const exportedKey = await crypto.subtle.exportKey("raw", key);
             const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
             const ivBase64 = btoa(String.fromCharCode(...iv));
 
-            // Output the encrypted text and download the key/IV
-            const encryptedText = btoa(String.fromCharCode(...new Uint8Array(encryptedData)));
-            downloadFile("encrypted_text.crypt", encryptedText);
-            const keyIvContent = `Decryption Key: ${keyBase64}\nIV: ${ivBase64}`;
-            downloadFile("key_iv.txt", keyIvContent);
+            const keyIvContent = `key: ${keyBase64}\niv: ${ivBase64}`;
+            const keyIvFileName = `textKey_${Date.now()}.ckey`;
 
-            document.getElementById("output").innerText = "Text encrypted successfully.";
+            downloadFile(`text_${Date.now()}.crypt`, btoa(String.fromCharCode(...new Uint8Array(encryptedData))));
+            downloadFile(keyIvFileName, keyIvContent);
+
+            document.getElementById("output").innerText = `Text encrypted successfully. Saved as text_${Date.now()}.crypt and ${keyIvFileName}.`;
         }
 
-        // Decrypts the text input by the user
+        // Decrypts the text input using the key and IV
         async function decryptText() {
             const text = document.getElementById("textInput").value;
             if (!text) {
-                alert("Please enter some text to decrypt.");
+                alert("Please enter some encrypted text to decrypt.");
                 return;
             }
 
-            const keyIvFile = await uploadFile("Upload the decryption key/IV file:");
-            const keyIvContent = new TextDecoder().decode(keyIvFile);
-            const [keyBase64, ivBase64] = keyIvContent.split("\n").map(line => line.split(": ")[1]);
+            const keyIvContent = prompt("Please enter the key and IV in the format:\nkey: <base64_key>\niv: <base64_iv>");
+            if (!keyIvContent) {
+                alert("Invalid input.");
+                return;
+            }
 
-            const encryptedData = Uint8Array.from(atob(text), c => c.charCodeAt(0));
+            const [keyBase64, ivBase64] = keyIvContent.split("\n").map(line => line.split(": ")[1]);
             const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
             const keyBuffer = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0)).buffer;
 
@@ -267,34 +292,19 @@
             );
 
             try {
+                const encryptedData = new Uint8Array(atob(text).split("").map(c => c.charCodeAt(0)));
                 const decryptedData = await crypto.subtle.decrypt(
                     { name: "AES-GCM", iv: iv },
                     key,
                     encryptedData
                 );
 
-                const decryptedText = new TextDecoder().decode(decryptedData);
-                document.getElementById("textInput").value = decryptedText;
+                document.getElementById("textInput").value = new TextDecoder().decode(decryptedData);
                 document.getElementById("output").innerText = "Text decrypted successfully.";
             } catch (e) {
                 console.error("Decryption failed", e);
                 document.getElementById("output").innerText = "Decryption failed.";
             }
-        }
-
-        // Helper function for file upload
-        async function uploadFile(promptText) {
-            return new Promise((resolve) => {
-                const input = document.createElement("input");
-                input.type = "file";
-                input.accept = "text/plain";
-                input.onchange = async (event) => {
-                    const file = event.target.files[0];
-                    const arrayBuffer = await file.arrayBuffer();
-                    resolve(new Uint8Array(arrayBuffer));
-                };
-                input.click();
-            });
         }
     </script>
 </body>
